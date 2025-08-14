@@ -51,6 +51,28 @@ try {
         exit;
     }
 
+    // Handle file removal
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['remove_file'], $_POST['message_id'])) {
+        $messageId = (int) $_POST['message_id'];
+        $controller->removeFile($messageId);
+        header("Location: index.php?page=" . (isset($_GET['page']) ? (int) $_GET['page'] : 1));
+        exit;
+    }
+
+    // Handle bulk deletion
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_selected'], $_POST['selected_messages'])) {
+        $selectedMessages = array_map('intval', $_POST['selected_messages']);
+
+        try {
+            $controller->deleteMultiplePosts($selectedMessages);
+            $_SESSION['success_message'] = count($selectedMessages) . " message(s) deleted successfully";
+            header("Location: index.php?page=" . (isset($_GET['page']) ? (int) $_GET['page'] : 1));
+            exit;
+        } catch (Exception $e) {
+            $messageError = "Failed to delete selected messages: " . $e->getMessage();
+        }
+    }
+
     // Get pagination parameters
     $perPage = 10;
     $page = isset($_GET['page']) && is_numeric($_GET['page']) && $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
@@ -265,6 +287,56 @@ try {
             border: none;
             color: white;
         }
+
+        .file-management {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .file-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .change-file-btn,
+        .remove-file-btn,
+        .upload-btn,
+        .cancel-upload {
+            padding: 5px 10px;
+            cursor: pointer;
+            border: none;
+            border-radius: 3px;
+        }
+
+        .change-file-btn {
+            background-color: #17a2b8;
+            color: white;
+        }
+
+        .remove-file-btn {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .upload-btn {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .cancel-upload {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        #file-upload-form {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
     </style>
 </head>
 
@@ -277,6 +349,11 @@ try {
         </div>
     <?php endif; ?>
 
+    <?php if (isset($_SESSION['success_message'])): ?>
+        <div class="success"><?php echo htmlspecialchars($_SESSION['success_message']); ?></div>
+        <?php unset($_SESSION['success_message']); ?>
+    <?php endif; ?>
+
     <!-- Display message submission errors -->
     <?php if (isset($messageError)): ?>
         <p class="error"><?php echo htmlspecialchars($messageError); ?></p>
@@ -287,16 +364,22 @@ try {
         <p class="error"><?php echo htmlspecialchars($fileError); ?></p>
 
     <?php endif; ?>
-    <button class="addpost">Write a post</button>
+
+    <div class="bulk-actions">
+        <button class="addpost">Write a post</button>
+        <button id="delete-selected" class="delete-selected-btn">Delete Selected</button>
+    </div>
     <!-- Display messages table -->
     <?php if (isset($messages)): ?>
         <table>
             <tr>
+                <th><input type="checkbox" id="select-all"></th>
                 <th>Name</th>
                 <th>Subject</th>
                 <th>Message</th>
                 <th>File</th>
                 <th>Date</th>
+                <th>action</th>
             </tr>
             <?php
             if (empty($messages)) {
@@ -304,6 +387,7 @@ try {
             } else {
                 foreach ($messages as $message) {
                     echo "<tr>";
+                    echo "<td><input type='checkbox' class='message-checkbox' name='selected_messages[]' value='" . htmlspecialchars($message['id']) . "'></td>";
                     echo "<td>" . htmlspecialchars($message['name']) . "</td>";
                     echo "<td>" . htmlspecialchars($message['subject']) . "</td>";
                     echo "<td>" . htmlspecialchars(substr($message['message'], 0, 50)) . (strlen($message['message']) > 50 ? '...' : '') . "</td>";
@@ -370,7 +454,7 @@ try {
                 <input type="text" name="subject" id="subject" required>
 
                 <label for="message">Message</label>
-                <textarea name="message" id="message" required></textarea>
+                <textarea name="message" id="message"></textarea>
 
                 <div>
                     <button type="submit" id="form-submit-btn">Submit</button>
@@ -389,22 +473,109 @@ try {
                 <p><strong>Subject:</strong> <span id="view-subject"></span></p>
                 <p><strong>Message:</strong> <span id="view-message"></span></p>
                 <p><strong>Date:</strong> <span id="view-date"></span></p>
-                <p><strong>File:</strong> <span id="view-file"></span></p>
+                <div class="file-management">
+                    <p><strong>File:</strong> <span id="view-file"></span></p>
+                    <form id="file-upload-form" method="POST" enctype="multipart/form-data" style="display: none;">
+                        <input type="hidden" name="message_id" id="upload-message-id">
+                        <input type="file" name="uploaded_file" id="new-uploaded-file" required>
+                        <button type="submit" class="upload-btn">Upload</button>
+                        <button type="button" class="cancel-upload">Cancel</button>
+                    </form>
+                    <div class="file-actions" id="file-actions">
+                        <button class="change-file-btn">Change File</button>
+                        <form method="POST" class="remove-file-form">
+                            <input type="hidden" name="message_id" id="remove-message-id">
+                            <input type="hidden" name="remove_file" value="1">
+                            <button type="submit" class="remove-file-btn">Remove File</button>
+                        </form>
+                    </div>
+                </div>
             </div>
             <div class="message-actions">
                 <button class="edit-btn">Edit</button>
-                <button class="delete-btn">Delete</button>
+                <form id="delete-form" method="POST" style="display: inline;">
+                    <input type="hidden" name="id" id="delete-id">
+                    <input type="hidden" name="delete_message" value="1">
+                    <button type="submit" class="delete-btn">Delete</button>
+                </form>
                 <button class="close-view">Close</button>
             </div>
         </div>
     </div>
-
     <script>
         const addButton = document.querySelector('.addpost');
         const overlay = document.querySelector('.overlay');
         const editButton = document.querySelector('.edit-btn');
         const closeButton = document.querySelector('.close-modal');
+        const changeFileBtn = document.querySelector('.change-file-btn');
+        const cancelUploadBtn = document.querySelector('.cancel-upload');
+        const fileUploadForm = document.getElementById('file-upload-form');
+        const fileActions = document.getElementById('file-actions');
+        const removeFileForm = document.querySelector('.remove-file-form');
+        const selectAllCheckbox = document.getElementById('select-all');
+        const messageCheckboxes = document.querySelectorAll('.message-checkbox');
+        const deleteSelectedBtn = document.getElementById('delete-selected');
 
+        // Select all functionality
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', (e) => {
+                const isChecked = e.target.checked;
+                messageCheckboxes.forEach(checkbox => {
+                    checkbox.checked = isChecked;
+                });
+            });
+        }
+        // Delete selected functionality
+        if (deleteSelectedBtn) {
+            deleteSelectedBtn.addEventListener('click', () => {
+                const selectedMessages = Array.from(document.querySelectorAll('.message-checkbox:checked'))
+                    .map(checkbox => checkbox.value);
+
+                if (selectedMessages.length === 0) {
+                    alert('Please select at least one message to delete');
+                    return;
+                }
+
+                if (confirm(`Are you sure you want to delete ${selectedMessages.length} selected message(s)?`)) {
+                    // Create a form and submit it
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '';
+
+                    selectedMessages.forEach(id => {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'selected_messages[]';
+                        input.value = id;
+                        form.appendChild(input);
+                    });
+
+                    const deleteInput = document.createElement('input');
+                    deleteInput.type = 'hidden';
+                    deleteInput.name = 'delete_selected';
+                    deleteInput.value = '1';
+                    form.appendChild(deleteInput);
+
+                    document.body.appendChild(form);
+                    form.submit();
+                }
+            });
+        }
+
+        if (changeFileBtn) {
+            changeFileBtn.addEventListener('click', () => {
+                fileUploadForm.style.display = 'flex';
+                fileActions.style.display = 'none';
+            });
+        }
+
+        if (cancelUploadBtn) {
+            cancelUploadBtn.addEventListener('click', () => {
+                fileUploadForm.style.display = 'none';
+                fileActions.style.display = 'flex';
+                document.getElementById('new-uploaded-file').value = '';
+            });
+        }
         if (editButton) {
             editButton.addEventListener('click', () => {
                 const messageId = viewOverlay.getAttribute('data-current-id');
@@ -479,13 +650,19 @@ try {
                         document.getElementById('view-subject').textContent = message.subject;
                         document.getElementById('view-message').textContent = message.message;
                         document.getElementById('view-date').textContent = message.date;
-
+                        document.getElementById('delete-id').value = messageId;
+                        document.getElementById('upload-message-id').value = messageId;
+                        document.getElementById('remove-message-id').value = messageId;
                         const fileElement = document.getElementById('view-file');
                         if (message.uploaded) {
                             const fileName = message.uploaded.split('/').pop();
                             fileElement.innerHTML = `<a href="${message.uploaded}" download>${fileName}</a>`;
+                            fileActions.style.display = 'flex';
+                            fileUploadForm.style.display = 'none';
                         } else {
                             fileElement.textContent = 'No file uploaded';
+                            fileActions.style.display = 'none';
+                            fileUploadForm.style.display = 'flex';
                         }
 
                         // Store the current message ID for edit/delete

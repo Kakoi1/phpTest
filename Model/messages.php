@@ -227,4 +227,39 @@ class Messages
             throw new Exception("Failed to delete message");
         }
     }
+    public function removeFile($messageId)
+    {
+        try {
+            // First get the message to check for file
+            $message = $this->getMessageById($messageId);
+
+            if ($message && $message['uploaded']) {
+                // Delete the file if it exists
+                if (file_exists($message['uploaded'])) {
+                    unlink($message['uploaded']);
+                }
+            }
+
+            // Update the database to remove file reference
+            $sql = "UPDATE messages SET uploaded = NULL WHERE id = ?";
+            $stmt = mysqli_prepare($this->conn, $sql);
+
+            if (!$stmt) {
+                throw new Exception("Database query preparation failed");
+            }
+
+            mysqli_stmt_bind_param($stmt, "i", $messageId);
+
+            if (!mysqli_stmt_execute($stmt)) {
+                throw new Exception("Database query execution failed");
+            }
+
+            mysqli_stmt_close($stmt);
+            return true;
+
+        } catch (Exception $e) {
+            error_log("Error in removeFile: " . $e->getMessage());
+            throw new Exception("Failed to remove file");
+        }
+    }
 }

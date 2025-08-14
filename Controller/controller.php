@@ -101,4 +101,24 @@ class Controller
             throw new Exception("Failed to get today's posts count: " . $e->getMessage());
         }
     }
+
+    public function removeFile($messageId)
+    {
+        try {
+            $message = $this->postModel->removeFile($messageId);
+        } catch (Exception $e) {
+            throw new Exception("Failed to get today's posts count: " . $e->getMessage());
+        }
+    }
+    public function deleteMultiplePosts(array $ids)
+    {
+        try {
+            foreach ($ids as $id) {
+                $this->postModel->deleteMessage($id);
+            }
+            return true;
+        } catch (Exception $e) {
+            throw new Exception("Failed to delete multiple posts: " . $e->getMessage());
+        }
+    }
 }
